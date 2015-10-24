@@ -5,8 +5,11 @@ import processing.serial.*;
 Arduino arduino;
 
 /*************************************************
-             CONSTANTS
+             GENERAL CONSTANTS / VARS
  ************************************************/
+int deltaTime = 0;    // Time elapsed of this drawing cycle
+int timeElapsed = 0;
+
 int LED_ON = Arduino.HIGH;
 int LED_OFF = Arduino.LOW;
 
@@ -41,14 +44,18 @@ final int BUTTON_6 = 83;
 final int BUTTON_7 = 65;
 final int BUTTON_8 = 90;
 
-public class Button {
-    public boolean on;
-    public int buttonNumber;
-    public int ledNumber;
-    public int keyCode;
+final int START_FLASH_SPEED = 1000;
 
-    public Button(boolean on, int buttonNumber, int ledNumber, int keyCode) {
-        this.on = on;
+public class Button {
+    public boolean on = false;
+    public int buttonNumber = 0;
+    public int ledNumber = 0;
+    public int keyCode = 0;
+    private boolean flashing = false;
+    private int flashSpeed = START_FLASH_SPEED;
+    private int timeSinceLastFlash = 0;
+
+    public Button(int buttonNumber, int ledNumber, int keyCode) {
         this.buttonNumber = buttonNumber;
         this.ledNumber = ledNumber;
         this.keyCode = keyCode;
@@ -62,6 +69,24 @@ public class Button {
 
     public void toggleLed() {
         setLed(!on);
+    }
+
+    public void startFlashing() {
+        flashing = true;
+        timeSinceLastFlash = 0;
+    }
+
+    public void stopFlashing() {
+        flashing = false;
+        timeSinceLastFlash = 0;
+    }
+
+    public void flash(int deltaTime) {
+        timeSinceLastFlash += deltaTime;
+        if (timeSinceLastFlash >= flashSpeed) {
+            toggleLed();
+            timeSinceLastFlash = 0;
+        }
     }
 };
 
@@ -96,15 +121,19 @@ ButtonName[] BLUE_BUTTONS = {
 
 // Set the button information
 Button[] buttons = {
-    new Button(false, BUTTON_1, LEFT_PILLAR_LED, KEY_C),
-    new Button(false, BUTTON_2, FLOOR_RED_LED, KEY_D),
-    new Button(false, BUTTON_3, FLOOR_BLUE_LED, KEY_R),
-    new Button(false, BUTTON_4, FRONT_WALL_LED1, KEY_T),
-    new Button(false, BUTTON_5, FRONT_WALL_LED2, KEY_Y),
-    new Button(false, BUTTON_6, RIGHT_WALL_LED1, KEY_U),
-    new Button(false, BUTTON_7, RIGHT_WALL_LED2, KEY_J),
-    new Button(false, BUTTON_8, RIGHT_PILLAR_LED, KEY_N)
+    new Button(BUTTON_1, LEFT_PILLAR_LED, KEY_C),
+    new Button(BUTTON_2, FLOOR_RED_LED, KEY_D),
+    new Button(BUTTON_3, FLOOR_BLUE_LED, KEY_R),
+    new Button(BUTTON_4, FRONT_WALL_LED1, KEY_T),
+    new Button(BUTTON_5, FRONT_WALL_LED2, KEY_Y),
+    new Button(BUTTON_6, RIGHT_WALL_LED1, KEY_U),
+    new Button(BUTTON_7, RIGHT_WALL_LED2, KEY_J),
+    new Button(BUTTON_8, RIGHT_PILLAR_LED, KEY_N)
 };
+
+/*************************************************
+            GAME CONSTANTS
+ ************************************************/
                 
 /*************************************************
                 SETUP
@@ -128,8 +157,18 @@ void setup(){
  ************************************************/
 
 void draw() {
+    if (timeElapsed <= 0) {
+        for (Button button : buttons) {
+            button.startFlashing();
+        }
+    }
+
+    deltaTime = millis() - timeElapsed;
+    timeElapsed = millis();
+
     //alternateLedsPerColour();
-    checkLedStates();
+    //checkLedStates();
+    flashLeds(deltaTime);
 }
 
 /*************************************************
@@ -220,22 +259,6 @@ void turnLedsOff(ButtonName[] buttonNames) {
         buttons[buttonName.ordinal()].setLed(false);
 }
 
-/*
-void dot(int led) {
-    ledOn(led);
-    delay(250);
-    ledOff(led);
-    delay(250); 
-}
-
-void dash(int led) {
-    ledOn(led);
-    delay(500);
-    ledOff(led);
-    delay(250);
-}
-*/
-
 void alternateLedsPerColour() {
     turnLedsOn(RED_BUTTONS);
     delay(250);
@@ -247,5 +270,13 @@ void alternateLedsPerColour() {
 }
 
 void randomizeLeds() {
+}
+
+// TODO
+void flashLeds(int deltaTime) {
+    for (Button button : buttons) {
+        if (button.flashing)
+            button.flash(deltaTime);
+    }
 }
 
