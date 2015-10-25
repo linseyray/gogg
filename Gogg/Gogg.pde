@@ -34,6 +34,8 @@ final int KEY_U = 85;
 final int KEY_J = 74;
 final int KEY_N = 78;
 
+final int KEY_ENTER = 10;       // For starting the game
+
 // Button keycodes (on keyboard)
 final int BUTTON_1 = 17;
 final int BUTTON_2 = 18;
@@ -104,7 +106,7 @@ enum ButtonName {
     RIGHT_PILLAR    // Red
 };
 
-int[] RED_LED_NUMBERS = { 13, 12, 6};
+int[] RED_LED_NUMBERS = { 13, 12, 6 };
 int[] BLUE_LED_NUMBERS = { 11, 10, 9, 8, 7};
 ButtonName[] RED_BUTTONS = { 
     ButtonName.LEFT_PILLAR, 
@@ -132,8 +134,35 @@ Button[] buttons = {
 };
 
 /*************************************************
-            GAME CONSTANTS
+                GAME VARIABLES
  ************************************************/
+
+boolean gameStarted = false;           // Whether the game is running (for debug purposes)
+final int NR_ROUNDS = 5;               // Completing these rounds = win
+final int TIME_PER_ROUND = 1000 * 5;   // Time per round in ms
+final int NR_BUTTONS = 8;
+final int NR_CHALLENGES = 5;
+
+int currentChallenge = 0;               // The challenge number (one randomly chosen per round)
+int currentRound = 0;                   // The round we're currently in
+
+// int[] state --> 0: off, 1: on, x: flashing speed(??)
+
+class Challenge {
+    public int[] beginState;
+    public int[] endState;
+    public int timeLimit;
+    public boolean completed = false;
+
+    public Challenge(int[] beginState, int[] endState, int timeLimit) {
+        this.beginState = beginState;
+        this.endState = endState;
+        this.timeLimit = timeLimit;
+    }
+}
+
+Challenge[] challenges = new Challenge[NR_CHALLENGES];
+
                 
 /*************************************************
                 SETUP
@@ -150,6 +179,18 @@ void setup(){
     arduino.pinMode(8, Arduino.OUTPUT); 
     arduino.pinMode(7, Arduino.OUTPUT);
     arduino.pinMode(6, Arduino.OUTPUT); 
+
+    // -1:   no preference
+    //  0:   LED off
+    //  1:   LED ON
+    //  2:   flash 
+
+    ///////////////
+    // CHALLENGE1 : STOP RED LIGHTS FROM FLASHING! (turn them off)
+    ///////////////
+    int[] beginState = { 2, 2, 2, 2, 2, 2, 2, 2 };
+    int[] endState = { 0, 0, -1, -1, -1, -1, -1, 0} ;
+    challenges[0] = new Challenge(beginState, endState, TIME_PER_ROUND);
 }
 
 /*************************************************
@@ -157,18 +198,63 @@ void setup(){
  ************************************************/
 
 void draw() {
-    if (timeElapsed <= 0) {
-        for (Button button : buttons) {
-            button.startFlashing();
-        }
-    }
-
     deltaTime = millis() - timeElapsed;
     timeElapsed = millis();
 
+    if (gameStarted) {
+        loop();
+    }
+}
+
+// HACKISH CODE I'M SORRY NOT SORRY it's 2am
+
+void loop() {
     //alternateLedsPerColour();
     //checkLedStates();
     flashLeds(deltaTime);
+
+    if (stateReached(challenges[currentChallenge].endState)) {
+        println("CHALLENGE COMPLETED!!");
+        // TODO goto next round
+        // TODO play a sound??? 
+    }
+}
+
+
+void initialiseState(int[] beginState) {
+    for (int i = 0; i < NR_BUTTONS; i++) {
+        int state = beginState[i];
+        Button button = buttons[i];
+
+        if (state == 0)
+            // make it deaddeaddead
+            button.setLed(false);
+        else
+        if (state == 1)
+            // make it glowglowglow
+            button.setLed(true);
+        else {
+            // make it flashflashflash
+            button.startFlashing();
+        }
+    }
+}
+
+boolean stateReached(int[] endState) {
+    // TODO
+    // check if the game state matches the end state
+    for (int i = 0; i < NR_BUTTONS; i++) {
+        int state = endState[i];
+        Button button = buttons[i];
+
+        if (state == 0 && (button.on || button.flashing))
+            return false;
+        if (state == 1 && (!button.on || button.flashing))
+            return false;
+        if (state == 2 && (!button.flashing))
+            return false;
+    }
+    return true;
 }
 
 /*************************************************
@@ -236,9 +322,19 @@ void keyPressed() {
     println(keyCode);
 
     for (Button button : buttons) {
-        if (keyCode == button.keyCode ||    // Moderator turned on/off a led
-            keyCode == button.buttonNumber) // Player pressed one of the buttons
+        if (keyCode == button.keyCode ||      // Moderator turned on/off a led
+            keyCode == button.buttonNumber) { // Player pressed one of the buttons
             button.toggleLed();
+            button.stopFlashing();
+        }
+    }
+
+    if (!gameStarted && keyCode == KEY_ENTER) {
+        println("GAME STARTED");
+        gameStarted = true;
+        currentRound = 1;
+        currentChallenge = 0;
+        initialiseState(challenges[currentChallenge].beginState);
     }
 }
 
