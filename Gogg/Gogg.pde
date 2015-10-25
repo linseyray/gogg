@@ -1,6 +1,7 @@
 import cc.arduino.*;
 import org.firmata.*;
 import processing.serial.*;
+import ddf.minim.*;
 
 Arduino arduino;
 
@@ -49,6 +50,7 @@ final int BUTTON_8 = 90;
 final int START_FLASH_SPEED = 1000;
 
 public class Button {
+    public ButtonName buttonName;
     public boolean on = false;
     public int buttonNumber = 0;
     public int ledNumber = 0;
@@ -57,7 +59,8 @@ public class Button {
     private int flashSpeed = START_FLASH_SPEED;
     private int timeSinceLastFlash = 0;
 
-    public Button(int buttonNumber, int ledNumber, int keyCode) {
+    public Button(ButtonName buttonName, int buttonNumber, int ledNumber, int keyCode) {
+        this.buttonName = buttonName;
         this.buttonNumber = buttonNumber;
         this.ledNumber = ledNumber;
         this.keyCode = keyCode;
@@ -123,14 +126,14 @@ ButtonName[] BLUE_BUTTONS = {
 
 // Set the button information
 Button[] buttons = {
-    new Button(BUTTON_1, LEFT_PILLAR_LED, KEY_C),
-    new Button(BUTTON_2, FLOOR_RED_LED, KEY_D),
-    new Button(BUTTON_3, FLOOR_BLUE_LED, KEY_R),
-    new Button(BUTTON_4, FRONT_WALL_LED1, KEY_T),
-    new Button(BUTTON_5, FRONT_WALL_LED2, KEY_Y),
-    new Button(BUTTON_6, RIGHT_WALL_LED1, KEY_U),
-    new Button(BUTTON_7, RIGHT_WALL_LED2, KEY_J),
-    new Button(BUTTON_8, RIGHT_PILLAR_LED, KEY_N)
+    new Button(ButtonName.LEFT_PILLAR, BUTTON_1, LEFT_PILLAR_LED, KEY_C),
+    new Button(ButtonName.FLOOR_RED, BUTTON_2, FLOOR_RED_LED, KEY_D),
+    new Button(ButtonName.FLOOR_BLUE, BUTTON_3, FLOOR_BLUE_LED, KEY_R),
+    new Button(ButtonName.FRONT_WALL_1, BUTTON_4, FRONT_WALL_LED1, KEY_T),
+    new Button(ButtonName.FRONT_WALL_2, BUTTON_5, FRONT_WALL_LED2, KEY_Y),
+    new Button(ButtonName.RIGHT_WALL_1, BUTTON_6, RIGHT_WALL_LED1, KEY_U),
+    new Button(ButtonName.RIGHT_WALL_2, BUTTON_7, RIGHT_WALL_LED2, KEY_J),
+    new Button(ButtonName.RIGHT_PILLAR, BUTTON_8, RIGHT_PILLAR_LED, KEY_N)
 };
 
 /*************************************************
@@ -143,8 +146,9 @@ final int TIME_PER_ROUND = 1000 * 5;   // Time per round in ms
 final int NR_BUTTONS = 8;
 final int NR_CHALLENGES = 5;
 
-int currentChallenge = 0;               // The challenge number (one randomly chosen per round)
-int currentRound = 0;                   // The round we're currently in
+int currentChallenge = -1;               // The challenge number (one randomly chosen per round)
+int currentRound = -1;                   // The round we're currently in
+int timeInRound = 0;
 
 // int[] state --> 0: off, 1: on, x: flashing speed(??)
 
@@ -162,6 +166,19 @@ class Challenge {
 }
 
 Challenge[] challenges = new Challenge[NR_CHALLENGES];
+
+// SoundFile from processing sound library not working, use minim instead
+Minim minim = new Minim(this);
+AudioPlayer rightLedSound;
+AudioPlayer wrongLedSound;
+AudioPlayer roundCompleteSound;
+AudioPlayer explosionSound;
+
+// Helper because we need to rewind each time a sound is played
+void playSound(AudioPlayer soundFile) {
+    soundFile.rewind();
+    soundFile.play();
+}
 
                 
 /*************************************************
@@ -191,6 +208,16 @@ void setup(){
     int[] beginState = { 2, 2, 2, 2, 2, 2, 2, 2 };
     int[] endState = { 0, 0, -1, -1, -1, -1, -1, 0} ;
     challenges[0] = new Challenge(beginState, endState, TIME_PER_ROUND);
+    /*
+    int[] beginState1 = { 2, 2, 2, 2, 2, 2, 2, 2 };
+    int[] endState1 = { 0, 0, -1, -1, -1, -1, -1, 0} ;
+    challenges[1] = new Challenge(beginState1, endState1, TIME_PER_ROUND);
+    */
+
+    rightLedSound = minim.loadFile("rightled.wav");
+    wrongLedSound = minim.loadFile("wrongled.wav");
+    roundCompleteSound = minim.loadFile("roundcomplete.wav");
+    explosionSound = minim.loadFile("explosion.wav");
 }
 
 /*************************************************
@@ -209,17 +236,49 @@ void draw() {
 // HACKISH CODE I'M SORRY NOT SORRY it's 2am
 
 void loop() {
-    //alternateLedsPerColour();
-    //checkLedStates();
+    timeInRound += deltaTime;
     flashLeds(deltaTime);
 
+    // Check if we reached the end state of the current challenge
     if (stateReached(challenges[currentChallenge].endState)) {
         println("CHALLENGE COMPLETED!!");
-        // TODO goto next round
-        // TODO play a sound??? 
+        playSound(roundCompleteSound);
+        startNextRound();
     }
+
+    // Check if we passed the time limit
+    if (timeInRound >= challenges[currentChallenge].timeLimit)
+        DIEEEEEEEEEEE();
+
+    //alternateLedsPerColour();
+    //checkLedStates();
 }
 
+void startNextRound() {
+    println("NEW ROUND STARTED");
+    currentRound += 1;
+    currentChallenge += 1;  // TODO randomize
+    initialiseState(challenges[currentChallenge].beginState);
+
+    // TODO all rounds completed = WIN
+    //if ()
+}
+
+void DIEEEEEEEEEEE() {
+    println("NOOOO!!! I'm too young to dieeeeeeeee......\nBOOOOOOOOOOOOOOOOOOOOOOOOOM\n...");
+    playSound(explosionSound);
+    delay(1000);
+    restartGame();
+}
+
+void restartGame() {
+    println("GAME RESTARTED");
+    currentRound = -1;
+    currentChallenge = -1;
+    timeInRound = 0;
+
+    startNextRound();
+}
 
 void initialiseState(int[] beginState) {
     for (int i = 0; i < NR_BUTTONS; i++) {
@@ -324,17 +383,28 @@ void keyPressed() {
     for (Button button : buttons) {
         if (keyCode == button.keyCode ||      // Moderator turned on/off a led
             keyCode == button.buttonNumber) { // Player pressed one of the buttons
+            boolean buttonWasFlashing = button.flashing;
             button.toggleLed();
             button.stopFlashing();
+            if (keyCode == button.buttonNumber) { // player pressed
+                int[] endState = challenges[currentChallenge].endState;
+                int endStateOfButton = endState[button.buttonName.ordinal()];
+                if ((endStateOfButton == 1 && button.on && !button.flashing) ||
+                    (endStateOfButton == 0 && !button.on && !button.flashing) ||
+                    (endStateOfButton == 2 && button.flashing)) 
+                    playSound(rightLedSound);
+                else
+                    if (!buttonWasFlashing)
+                        playSound(wrongLedSound);
+            }
+
         }
     }
 
     if (!gameStarted && keyCode == KEY_ENTER) {
         println("GAME STARTED");
         gameStarted = true;
-        currentRound = 1;
-        currentChallenge = 0;
-        initialiseState(challenges[currentChallenge].beginState);
+        startNextRound();
     }
 }
 
@@ -375,4 +445,5 @@ void flashLeds(int deltaTime) {
             button.flash(deltaTime);
     }
 }
+
 
