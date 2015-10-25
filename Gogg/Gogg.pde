@@ -47,7 +47,11 @@ final int BUTTON_6 = 83;
 final int BUTTON_7 = 65;
 final int BUTTON_8 = 90;
 
-final int START_FLASH_SPEED = 500;
+final int START_FLASH_SPEED = 1000;
+final int ONE_MINUTE_FLASH_SPEED = 750;
+final int THIRTY_SECONDS_FLASH_SPEED = 500;
+final int TEN_SECONDS_FLASH_SPEED = 250;
+int flash_speed = START_FLASH_SPEED;
 
 public class Button {
     public ButtonName buttonName;
@@ -141,22 +145,30 @@ Button[] buttons = {
  ************************************************/
 
 boolean gameStarted = false;           // Whether the game is running (for debug purposes)
-final int NR_ROUNDS = 2;               // Completing these rounds = win
-final int TIME_PER_ROUND = 1000 * 10;  // Time per round in ms
+final int NR_ROUNDS = 3;               // Completing these rounds = win
+final int TIME_PER_ROUND = 1000 * (60+30);  // Time per round in ms
+final int ONE_MINUTE = 1000 * 60;             
+final int THIRTY_SECONDS = 1000 * 30;
+final int TEN_SECONDS = 1000 * 10;
 final int NR_BUTTONS = 8;
 final int NR_CHALLENGES = 5;
+final int CLOCKWISE_ORDER = 5;
 
 int currentChallenge = -1;               // The challenge number (one randomly chosen per round)
 int currentRound = -1;                   // The round we're currently in
 int timeInRound = 0;
-
-// int[] state --> 0: off, 1: on, x: flashing speed(??)
+int timeLeft = 0;
+boolean oneMinutePlayed = false;
+boolean tenPlayed = false;
+boolean thirtyPlayed = false;
 
 class Challenge {
     public int[] beginState;
     public int[] endState;
     public int timeLimit;
     public boolean completed = false;
+    public Button startButton = null;
+    public Button lastButtonPressed = null;
 
     public Challenge(int[] beginState, int[] endState, int timeLimit) {
         this.beginState = beginState;
@@ -175,6 +187,10 @@ AudioPlayer roundCompleteSound;
 AudioPlayer explosionSound;
 AudioPlayer gameWinSound;
 AudioPlayer newRoundSound;
+AudioPlayer oneMinuteRemainingSound;
+AudioPlayer thirtySecondsRemainingSound;
+AudioPlayer tenSecondsRemainingSound;
+
 
 // Helper because we need to rewind each time a sound is played
 void playSound(AudioPlayer soundFile) {
@@ -203,19 +219,29 @@ void setup(){
     //  0:   LED off
     //  1:   LED ON
     //  2:   flash 
+    //  5:   ALL LIGHTS, CLOCKWISE ORDER (start led doesn't matter
 
     ///////////////
-    // CHALLENGE1 : STOP BLUE LIGHTS FROM FLASHING! (turn them on)
+    // CHALLENGE 0: STOP BLUE LIGHTS FROM FLASHING! (turn them on)
     ///////////////
     int[] beginState = { 2, 2, 2, 2, 2, 2, 2, 2 };
     int[] endState = { -1, -1, 1, 1, 1, 1, 1, -1} ;
     challenges[0] = new Challenge(beginState, endState, TIME_PER_ROUND);
+
     ///////////////
-    // CHALLENGE2 : STOP RED LIGHTS FROM FLASHING! (turn them off)
+    // CHALLENGE 1: STOP RED LIGHTS FROM FLASHING! (turn them off)
     ///////////////
     int[] beginState1 = { 2, 2, 2, 2, 2, 2, 2, 2 };
     int[] endState1 = { 0, 0, -1, -1, -1, -1, -1, 0} ;
     challenges[1] = new Challenge(beginState1, endState1, TIME_PER_ROUND);
+
+    ///////////////
+    // CHALLENGE 2: HIT ALL LIGHTS IN CLOCKWISE ORDER
+    ///////////////
+    int[] beginState2 = { 2, 2, 2, 2, 2, 2, 2, 2 };
+    int[] endState2 = { 5, 5, 5, 5, 5, 5, 5, 5} ;
+    challenges[2] = new Challenge(beginState2, endState2, TIME_PER_ROUND);
+    challenges[2].startButton = buttons[ButtonName.FLOOR_BLUE.ordinal()];
 
     rightLedSound = minim.loadFile("rightled.wav");
     wrongLedSound = minim.loadFile("wrongled.wav");
@@ -224,6 +250,10 @@ void setup(){
     explosionSound = minim.loadFile("explosion.wav");
     gameWinSound = minim.loadFile("gamewin.wav");
     newRoundSound = minim.loadFile("newround.wav");
+
+    oneMinuteRemainingSound = minim.loadFile("one_minute_left.wav");
+    thirtySecondsRemainingSound = minim.loadFile("thirty_seconds_left.wav"); 
+    tenSecondsRemainingSound = minim.loadFile("ten_seconds_left.wav");;
 }
 
 /*************************************************
@@ -254,12 +284,42 @@ void loop() {
             return;
     }
 
+    timeLeft = TIME_PER_ROUND - timeInRound; // IN ms
+    countdown(timeLeft);
+
     // Check if we passed the time limit
     if (timeInRound >= challenges[currentChallenge].timeLimit)
         DIEEEEEEEEEEE();
 
     //alternateLedsPerColour();
     //checkLedStates();
+}
+
+void countdown(int timeLeft) {
+    // So that we play a sound only once a second!
+    if (timeLeft <= TEN_SECONDS && !tenPlayed)  {
+        setButtonsFlashSpeed(TEN_SECONDS_FLASH_SPEED);
+        playSound(tenSecondsRemainingSound);
+        println("TEN SECONDS LEFT");
+        println(timeLeft);
+        tenPlayed = true;
+    }
+    else
+    if (timeLeft <= THIRTY_SECONDS && !thirtyPlayed) {
+        setButtonsFlashSpeed(THIRTY_SECONDS_FLASH_SPEED);
+        playSound(thirtySecondsRemainingSound);
+        println("THIRTY SECONDS LEFT");
+        println(timeLeft);
+        thirtyPlayed = true;
+    }
+    else 
+    if (timeLeft <= ONE_MINUTE && !oneMinutePlayed) {
+        setButtonsFlashSpeed(ONE_MINUTE_FLASH_SPEED);
+        playSound(oneMinuteRemainingSound);
+        println("ONE MINUTE LEFT");
+        println(timeLeft);
+        oneMinutePlayed = true;
+    }
 }
 
 void startNextRound() {
@@ -277,6 +337,12 @@ void startNextRound() {
         playSound(newRoundSound);
     }
 
+}
+
+void setButtonsFlashSpeed(int speed) {
+    for (Button button : buttons) {
+        button.flashSpeed = speed;
+    }
 }
 
 void DIEEEEEEEEEEE() {
@@ -299,12 +365,17 @@ void resetGame() {
     currentRound = -1;
     currentChallenge = -1;
     timeInRound = 0;
+    timeLeft = 0;
+    oneMinutePlayed = false;
+    tenPlayed = false;
+    thirtyPlayed = false;
 }
 
 void turnButtonsOff() {
     for (Button button : buttons) {
         button.setLed(false);
         button.flashing = false;
+        button.flashSpeed = START_FLASH_SPEED;
     }
 }
 
@@ -338,6 +409,9 @@ boolean stateReached(int[] endState) {
             return false;
         if (expectedState == 2 && (!button.flashing))
             return false;
+        if (expectedState == CLOCKWISE_ORDER && (!allButtonsOff()))
+            // All buttons must be off
+            return false;
     }
     return true;
 }
@@ -346,11 +420,13 @@ boolean stateReached(int[] endState) {
                STATE CHECKS 
  ************************************************/
 void checkLedStates() {
+    /*
     if (allRedsOn() && allBluesOff())
         println("BOOOOOOOOOM");   // EXPLODE???
 
     if (allBluesOn() && allRedsOff())
         println("uwin?");   // win?
+        */
 
     if (bluesOnFrontWallOn()) 
         println("BLUES ON FRONT WALL ON");
@@ -360,41 +436,61 @@ void checkLedStates() {
 
 }
 
+boolean allButtonsOff() {
+    for (Button button : buttons) 
+        if (button.on || button.flashing)
+            return false;
+    return true;
+}
+
+/*
 boolean allRedsOn() {
+    // BNROKEN
     for (ButtonName buttonName: RED_BUTTONS) 
-        if (!buttons[buttonName.ordinal()].on)
+        Button button = buttons[buttonName.ordinal()];
+        if (!button.on || button.flashing)
             return false;
     return true;
 }
 
 boolean allBluesOn() {
+    // BROKEN
     for (ButtonName buttonName: BLUE_BUTTONS) {
-        if (!buttons[buttonName.ordinal()].on)
+        Button button = buttons[buttonName.ordinal()];
+        if (!button.on || button.flashing)
             return false;
     }
     return true;
 }
 
 boolean allRedsOff() {
-    for (ButtonName buttonName: RED_BUTTONS) 
-        if (buttons[buttonName.ordinal()].on)
+    // BROKEN
+    for (ButtonName buttonName: RED_BUTTONS) {
+        Button button = buttons[buttonName.ordinal()];
+        if (button.on || button.flashing)
             return false;
+    }
     return true;
 }
 
 boolean allBluesOff() {
+    // BROKEN
     for (ButtonName buttonName: BLUE_BUTTONS) 
-        if (buttons[buttonName.ordinal()].on)
+        Button button = buttons[buttonName.ordinal()];
+        if (button.on || button.flashing)
             return false;
     return true;
 }
+*/
 
 boolean bluesOnFrontWallOn() {
+    // TODO FLASHING
     return buttons[ButtonName.FRONT_WALL_1.ordinal()].on &&
            buttons[ButtonName.FRONT_WALL_2.ordinal()].on;
 }
 
 boolean bluesOnRightWallOn() {
+    // TODO FLASHING
     return buttons[ButtonName.RIGHT_WALL_1.ordinal()].on &&
            buttons[ButtonName.RIGHT_WALL_2.ordinal()].on;
 }
@@ -408,8 +504,8 @@ void keyPressed() {
 
     for (Button button : buttons) {
         if (keyCode == button.keyCode) {      // Moderator turned on/off a led
-            button.toggleLed();
-            button.stopFlashing();
+            //button.toggleLed();
+            //button.stopFlashing();
         }
 
         if (keyCode == button.buttonNumber && gameStarted) { // Player pressed one of the buttons
@@ -423,6 +519,11 @@ void keyPressed() {
                 else
                 if (expectedState == 0) // turn off
                     button.setLed(false);
+                else
+                if (expectedState == CLOCKWISE_ORDER) {
+                    button.setLed(false);
+                    challenges[currentChallenge].lastButtonPressed = button;
+                }
                 button.stopFlashing();
                 playSound(rightLedSound);
             }
@@ -448,6 +549,26 @@ boolean isCorrectAction(int expectedState, Button button) {
     if (expectedState == 0 && (button.on || button.flashing))
         // We must turn it off, but currently it's on or flashing
         return true;
+    if (expectedState == CLOCKWISE_ORDER) {
+        // We must turn it off, but the last button pressed must be
+        // the previous button in clockwise order
+        // TODO
+        Challenge challenge = challenges[currentChallenge];
+        if (challenge.lastButtonPressed == null) {
+            // No button pressed yet, startButton must be pressed first
+            if (challenge.startButton.buttonNumber == button.buttonNumber) {
+                challenge.lastButtonPressed = challenge.startButton;
+                return true;
+            }
+        }
+        else {
+            // Startbutton has been pressed, check if we now pressed the /next/ button (in clockwise order)
+            int lastPressedButtonName = challenge.lastButtonPressed.buttonName.ordinal();
+            int currentlyPressedButtonName = button.buttonName.ordinal();
+            if ((lastPressedButtonName+1) % NR_BUTTONS == currentlyPressedButtonName) 
+                return true;
+        }
+    }
     return false;
 }
 
