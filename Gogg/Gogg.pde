@@ -47,7 +47,7 @@ final int BUTTON_6 = 83;
 final int BUTTON_7 = 65;
 final int BUTTON_8 = 90;
 
-final int START_FLASH_SPEED = 1000;
+final int START_FLASH_SPEED = 500;
 
 public class Button {
     public ButtonName buttonName;
@@ -141,8 +141,8 @@ Button[] buttons = {
  ************************************************/
 
 boolean gameStarted = false;           // Whether the game is running (for debug purposes)
-final int NR_ROUNDS = 5;               // Completing these rounds = win
-final int TIME_PER_ROUND = 1000 * 5;   // Time per round in ms
+final int NR_ROUNDS = 2;               // Completing these rounds = win
+final int TIME_PER_ROUND = 1000 * 10;  // Time per round in ms
 final int NR_BUTTONS = 8;
 final int NR_CHALLENGES = 5;
 
@@ -173,6 +173,8 @@ AudioPlayer rightLedSound;
 AudioPlayer wrongLedSound;
 AudioPlayer roundCompleteSound;
 AudioPlayer explosionSound;
+AudioPlayer gameWinSound;
+AudioPlayer newRoundSound;
 
 // Helper because we need to rewind each time a sound is played
 void playSound(AudioPlayer soundFile) {
@@ -203,21 +205,25 @@ void setup(){
     //  2:   flash 
 
     ///////////////
-    // CHALLENGE1 : STOP RED LIGHTS FROM FLASHING! (turn them off)
+    // CHALLENGE1 : STOP BLUE LIGHTS FROM FLASHING! (turn them on)
     ///////////////
     int[] beginState = { 2, 2, 2, 2, 2, 2, 2, 2 };
-    int[] endState = { 0, 0, -1, -1, -1, -1, -1, 0} ;
+    int[] endState = { -1, -1, 1, 1, 1, 1, 1, -1} ;
     challenges[0] = new Challenge(beginState, endState, TIME_PER_ROUND);
-    /*
+    ///////////////
+    // CHALLENGE2 : STOP RED LIGHTS FROM FLASHING! (turn them off)
+    ///////////////
     int[] beginState1 = { 2, 2, 2, 2, 2, 2, 2, 2 };
     int[] endState1 = { 0, 0, -1, -1, -1, -1, -1, 0} ;
     challenges[1] = new Challenge(beginState1, endState1, TIME_PER_ROUND);
-    */
 
     rightLedSound = minim.loadFile("rightled.wav");
     wrongLedSound = minim.loadFile("wrongled.wav");
     roundCompleteSound = minim.loadFile("roundcomplete.wav");
     explosionSound = minim.loadFile("explosion.wav");
+    explosionSound = minim.loadFile("explosion.wav");
+    gameWinSound = minim.loadFile("gamewin.wav");
+    newRoundSound = minim.loadFile("newround.wav");
 }
 
 /*************************************************
@@ -244,6 +250,8 @@ void loop() {
         println("CHALLENGE COMPLETED!!");
         playSound(roundCompleteSound);
         startNextRound();
+        if (!gameStarted)
+            return;
     }
 
     // Check if we passed the time limit
@@ -255,13 +263,20 @@ void loop() {
 }
 
 void startNextRound() {
-    println("NEW ROUND STARTED");
-    currentRound += 1;
-    currentChallenge += 1;  // TODO randomize
-    initialiseState(challenges[currentChallenge].beginState);
+    if (currentRound+1 == NR_ROUNDS) {
+        println("AWESOME! You diffused the bomb!!! Better RUN AND NEVER COME BACK.");
+        playSound(gameWinSound);
+        resetGame();
+    }
+    else {
+        println("NEW ROUND STARTED");
+        turnButtonsOff();
+        currentRound += 1;
+        currentChallenge += 1;  // TODO randomize
+        initialiseState(challenges[currentChallenge].beginState);
+        playSound(newRoundSound);
+    }
 
-    // TODO all rounds completed = WIN
-    //if ()
 }
 
 void DIEEEEEEEEEEE() {
@@ -272,12 +287,25 @@ void DIEEEEEEEEEEE() {
 }
 
 void restartGame() {
+    resetGame();
+    turnButtonsOff();
     println("GAME RESTARTED");
+    gameStarted = true;
+    startNextRound();
+}
+
+void resetGame() {
+    gameStarted = false;
     currentRound = -1;
     currentChallenge = -1;
     timeInRound = 0;
+}
 
-    startNextRound();
+void turnButtonsOff() {
+    for (Button button : buttons) {
+        button.setLed(false);
+        button.flashing = false;
+    }
 }
 
 void initialiseState(int[] beginState) {
@@ -300,17 +328,15 @@ void initialiseState(int[] beginState) {
 }
 
 boolean stateReached(int[] endState) {
-    // TODO
     // check if the game state matches the end state
     for (int i = 0; i < NR_BUTTONS; i++) {
-        int state = endState[i];
+        int expectedState = endState[i];
         Button button = buttons[i];
-
-        if (state == 0 && (button.on || button.flashing))
+        if (expectedState == 0 && (button.on || button.flashing))
             return false;
-        if (state == 1 && (!button.on || button.flashing))
+        if (expectedState == 1 && (!button.on || button.flashing))
             return false;
-        if (state == 2 && (!button.flashing))
+        if (expectedState == 2 && (!button.flashing))
             return false;
     }
     return true;
@@ -381,23 +407,28 @@ void keyPressed() {
     println(keyCode);
 
     for (Button button : buttons) {
-        if (keyCode == button.keyCode ||      // Moderator turned on/off a led
-            keyCode == button.buttonNumber) { // Player pressed one of the buttons
-            boolean buttonWasFlashing = button.flashing;
+        if (keyCode == button.keyCode) {      // Moderator turned on/off a led
             button.toggleLed();
             button.stopFlashing();
-            if (keyCode == button.buttonNumber) { // player pressed
-                int[] endState = challenges[currentChallenge].endState;
-                int endStateOfButton = endState[button.buttonName.ordinal()];
-                if ((endStateOfButton == 1 && button.on && !button.flashing) ||
-                    (endStateOfButton == 0 && !button.on && !button.flashing) ||
-                    (endStateOfButton == 2 && button.flashing)) 
-                    playSound(rightLedSound);
-                else
-                    if (!buttonWasFlashing)
-                        playSound(wrongLedSound);
-            }
+        }
 
+        if (keyCode == button.buttonNumber && gameStarted) { // Player pressed one of the buttons
+            // Check if the button brings us closer to end state
+            int[] endState = challenges[currentChallenge].endState;
+            int expectedState = endState[button.buttonName.ordinal()];
+            if (isCorrectAction(expectedState, button)) {
+                // Put the led in the correct state (because we flash, keep it user friendly)
+                if (expectedState == 1) // turn on
+                    button.setLed(true);
+                else
+                if (expectedState == 0) // turn off
+                    button.setLed(false);
+                button.stopFlashing();
+                playSound(rightLedSound);
+            }
+            else
+                // TODO only change state of button if it was the correct one
+                playSound(wrongLedSound);
         }
     }
 
@@ -406,6 +437,18 @@ void keyPressed() {
         gameStarted = true;
         startNextRound();
     }
+}
+
+
+boolean isCorrectAction(int expectedState, Button button) {
+    // This button is GOING to be pressed, but isn't yet
+    if (expectedState == 1 && (!button.on || button.flashing)) 
+        // We must turn it on, but currently it's off or flashing
+        return true;
+    if (expectedState == 0 && (button.on || button.flashing))
+        // We must turn it off, but currently it's on or flashing
+        return true;
+    return false;
 }
 
 void keyReleased() {
